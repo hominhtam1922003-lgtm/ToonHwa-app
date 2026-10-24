@@ -76,7 +76,7 @@ object AiEnhancer {
     @Volatile
     private var selfTestStarted = false
 
-    /** Tu chay thu model ESRGAN tren 1 anh gia nho ngay trong may user. */
+    /** Tu chay thu model AI tren 1 anh gia nho ngay trong may user. */
     fun ensureSelfTest(context: Context) {
         if (selfTestStarted) return
         selfTestStarted = true
@@ -118,7 +118,7 @@ object AiEnhancer {
             null
         }
         return buildString {
-            append("Engine: RealESRGAN anime (AI vẽ lại nét)\n")
+            append("Engine: Waifu2x noise3 ×2 (AI khử nhiễu + vẽ lại nét)\n")
             append("Model đã nạp: ").append(if (AiUpscaler.isReady()) "RỒI" else "CHƯA").append('\n')
             append("Tự kiểm tra: ").append(selfTestResult ?: "đang chạy…").append('\n')
             append("Lỗi gần nhất: ").append(lastError ?: saved ?: "không có").append('\n')
@@ -132,7 +132,7 @@ object AiEnhancer {
 
     private fun cacheDir(): File? {
         val ctx = appContext ?: return null
-        val dir = File(ctx.cacheDir, "ai_esrgan")
+        val dir = File(ctx.cacheDir, "ai_waifu2x")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }

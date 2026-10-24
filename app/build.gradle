@@ -5,7 +5,7 @@ plugins {
 
 import java.util.Base64
 
-// Icon + model AI (ESRGAN) dong goi dang base64 trong repo (GitHub chi
+// Icon + model AI (Waifu2x) dong goi dang base64 trong repo (GitHub chi
 // nhan file text); khi build se giai ma thanh tai nguyen that trong
 // thu muc generated.
 def genResRoot = layout.buildDirectory.dir('generated/toonhwaRes')
@@ -32,14 +32,14 @@ tasks.register('generateToonhwaAssets') {
                         Base64.getMimeDecoder().decode(f.getText('UTF-8'))
             }
         }
-        // Model ESRGAN: model-b64/esrgan.onnx.b64.p00..pNN -> assets/esrgan.onnx
+        // Model Waifu2x: model-b64/waifu2x.onnx.b64.p00..pNN -> assets/waifu2x.onnx
         def parts = file('model-b64').listFiles()
-                ?.findAll { it.name.startsWith('esrgan.onnx.b64.p') }
+                ?.findAll { it.name.startsWith('waifu2x.onnx.b64.p') }
                 ?.sort { it.name } ?: []
         if (!parts.isEmpty()) {
             assetsOut.mkdirs()
             def joined = parts.collect { it.getText('UTF-8') }.join('')
-            new File(assetsOut, 'esrgan.onnx').bytes =
+            new File(assetsOut, 'waifu2x.onnx').bytes =
                     Base64.getMimeDecoder().decode(joined)
         }
     }
@@ -53,8 +53,8 @@ android {
         applicationId 'com.example.toonhwa'
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName '1.2'
+        versionCode 8
+        versionName '1.3'
         ndk {
             // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app
             // Du 4 kien truc: thieu 32-bit la AI chet tren gia lap LDPlayer cu

@@ -9,26 +9,28 @@ import java.io.File
 import java.nio.FloatBuffer
 
 /**
- * Tang net bang AI THAT: RealESRGAN_x4plus_anime_6B (ONNX) — model chuyen
- * cho anh anime/manhwa, ve lai net chu khong chi khuech dai tuong phan
- * nhu bo loc thuong. User chon ban nay du cham (quyet dinh 24/10/2026
- * sau bake-off day du: loc thuong vo hat, waifu2x khac biet qua nho,
- * ESRGAN net nhat).
+ * Tang net bang AI: Waifu2x CUNet noise3_scale2x (ONNX) — khu nhieu manh
+ * nhat + phong 2x + ve lai net.
  *
- * Ky thuat chay tren may yeu:
- * - Xu ly theo DAI NGANG (128 dong, dem phan xa 16px): RAM nho, khong
- *   giu bitmap x4 khong lo — moi dai chay x4 xong THU NGAY ve x2 roi
- *   ghep vao bitmap dich (ban luu trong app la x2: vua du cho ca doc
- *   thuong lan phong to, ma nhe RAM).
- * - prepare() bat moi loi ke ca loi native (Error) va thu 2 cau hinh:
- *   ban 1.0 chet im lang tren gia lap vi chi bat Exception va vi
- *   abiFilters thieu kien truc 32-bit (ban nay dong goi du 4 ABI).
+ * Lich su lua chon (24/10/2026, sau bake-off tren anh that cua user):
+ * - Bo loc unsharp thuong: vo hat vung phang -> user chet ("vo hon goc").
+ * - RealESRGAN anime 6B: net nhat nhung ~150s/trang tren may yeu, ca chap
+ *   thi hang gio -> user huy vi qua cham.
+ * - Waifu2x noise3 x2: sach nhat (vung phang gan nhu nguyen, khong ve
+ *   ban vao bau troi nhu ESRGAN), nhanh hon ESRGAN ~5 lan. Ban luu trong
+ *   app la x2 — vua cho ca doc thuong lan phong to xem chi tiet.
+ *
+ * Ky thuat: chay theo DAI NGANG (256 dong, dem phan xa 48px) de RAM nho.
+ * Cong thuc CUNet da kiem chung trong bake-off Python: dau ra =
+ * 2*dau vao - 72 moi chieu; vung giu lai nam o offset 2*PAD - 36.
+ * prepare() thu XNNPACK truoc (tang toc CPU lon tren Android), khong duoc
+ * thi lui ve CPU thuong; bat moi loi ke ca loi native, dong goi du 4 ABI.
  */
 object AiUpscaler {
 
-    private const val ASSET_NAME = "esrgan.onnx"
-    private const val STRIP_H = 128
-    private const val PAD = 16
+    private const val ASSET_NAME = "waifu2x.onnx"
+    private const val STRIP_H = 256
+    private const val PAD = 48
 
     @Volatile
     private var env: OrtEnvironment? = null
@@ -49,7 +51,7 @@ object AiUpscaler {
         var failure: Throwable? = null
         for (attempt in 0..2) {
             try {
-                val modelFile = File(context.filesDir, "ai/esrgan.onnx")
+                val modelFile = File(context.filesDir, "ai/waifu2x.onnx")
                 if (!modelFile.exists() || modelFile.length() < 1_000_000) {
                     modelFile.parentFile?.mkdirs()
                     context.assets.open(ASSET_NAME).use { input ->
@@ -93,7 +95,7 @@ object AiUpscaler {
     fun isReady(): Boolean = session != null
 
     /**
-     * Anh vao -> anh x2 da AI ve lai net (chay x4 roi thu ve x2 theo dai).
+     * Anh vao -> anh x2 da AI khu nhieu + ve lai net (theo dai ngang).
      * Loi thi tra null va ghi lastFailure.
      */
     fun enhance(src: Bitmap): Bitmap? {
@@ -120,7 +122,7 @@ object AiUpscaler {
         }
     }
 
-    /** 1 dai: dem phan xa PAD, chay x4, cat dem, thu ve x2, ghep vao bitmap dich. */
+    /** 1 dai: dem phan xa PAD, chay model x2, cat dem, ghep vao bitmap dich. */
     private fun runStrip(
         s: OrtSession, e: OrtEnvironment,
         pixels: IntArray, w: Int, h: Int,
@@ -153,13 +155,13 @@ object AiUpscaler {
             result.use {
                 val outTensor = it[0] as OnnxTensor
                 val buf = outTensor.floatBuffer
-                val oW = inW * 4
-                val oH = inH * 4
+                val oW = inW * 2 - 72
+                val oH = inH * 2 - 72
                 val oPlane = oW * oH
-                val keepW = w * 4
-                val keepH = stripH * 4
+                val keepW = w * 2
+                val keepH = stripH * 2
                 val stripOut = IntArray(keepW * keepH)
-                val off = PAD * 4
+                val off = PAD * 2 - 36
                 for (y in 0 until keepH) {
                     val oRow = (off + y) * oW
                     val dRow = y * keepW
@@ -171,13 +173,7 @@ object AiUpscaler {
                         stripOut[dRow + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
                     }
                 }
-                val stripBmp = Bitmap.createBitmap(stripOut, keepW, keepH, Bitmap.Config.ARGB_8888)
-                val half = Bitmap.createScaledBitmap(stripBmp, w * 2, stripH * 2, true)
-                if (half !== stripBmp) stripBmp.recycle()
-                val rowsBack = IntArray(w * 2 * stripH * 2)
-                half.getPixels(rowsBack, 0, w * 2, 0, 0, w * 2, stripH * 2)
-                out.setPixels(rowsBack, 0, w * 2, 0, y0 * 2, w * 2, stripH * 2)
-                half.recycle()
+                out.setPixels(stripOut, 0, keepW, 0, y0 * 2, keepW, keepH)
             }
         }
     }
