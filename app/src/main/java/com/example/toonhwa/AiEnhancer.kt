@@ -90,7 +90,7 @@ object AiEnhancer {
 
     private fun cacheDir(): File? {
         val ctx = appContext ?: return null
-        val dir = File(ctx.cacheDir, "ai_cache2")
+        val dir = File(ctx.cacheDir, "ai_cache3")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }

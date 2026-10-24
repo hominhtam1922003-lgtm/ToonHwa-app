@@ -40,8 +40,8 @@ android {
         applicationId 'com.example.toonhwa'
         minSdk 24
         targetSdk 34
-        versionCode 5
-        versionName '1.1'
+        versionCode 6
+        versionName '1.1.1'
         ndk {
             // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app
             abiFilters 'arm64-v8a', 'x86_64'
