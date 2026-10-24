@@ -143,7 +143,14 @@ object AiEnhancer {
                     }
                 }
             } ?: continue
-            process(url)
+            try {
+                process(url)
+            } catch (t: Throwable) {
+                // Luong xu ly KHONG BAO GIO duoc chet (ke ca het bo nho):
+                // chet la hang doi dung im lang mai mai.
+                lastError = "AI lỗi nặng: ${t.javaClass.simpleName}"
+                pending.remove(url)
+            }
         }
     }
 
@@ -172,8 +179,9 @@ object AiEnhancer {
             if (!enhanced.isRecycled) enhanced.recycle()
             if (out.exists()) out.delete()
             tmp.renameTo(out)
-        } catch (e: Exception) {
-            lastError = "AI lỗi: ${e.javaClass.simpleName}"
+        } catch (t: Throwable) {
+            lastError = if (t is OutOfMemoryError) "AI hết bộ nhớ (OOM)"
+            else "AI lỗi: ${t.javaClass.simpleName}"
         } finally {
             pending.remove(url)
             if (callbacks != null) {

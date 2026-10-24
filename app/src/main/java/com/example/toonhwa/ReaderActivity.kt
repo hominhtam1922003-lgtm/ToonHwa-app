@@ -85,9 +85,10 @@ class ReaderActivity : AppCompatActivity() {
             btn.text = "AI nét: Tắt"
             return
         }
+        val active = AiEnhancer.activeCount()
         btn.text = when {
             AiEnhancer.lastError != null -> "AI: Lỗi"
-            AiEnhancer.activeCount() > 0 -> "AI: Đang nét hoá…"
+            active > 0 -> "AI: Đang nét hoá (còn $active)"
             else -> "AI nét: Bật"
         }
     }
@@ -165,7 +166,7 @@ class ReaderActivity : AppCompatActivity() {
         rv.scrollToPosition(0)
         // Xu ly truoc vai anh dau chuong de cuon xuong la thay ban net lien
         if (AiEnhancer.isEnabled(this)) {
-            pages.images.take(6).forEachIndexed { pos, url ->
+            pages.images.take(3).forEachIndexed { pos, url ->
                 AiEnhancer.submit(this, url) { refreshPage(adapter, pos, url) }
             }
         }

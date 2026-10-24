@@ -67,71 +67,101 @@ object AiUpscaler {
 
     fun isReady(): Boolean = session != null
 
-    /** Anh vao -> anh 2x da tang net. Loi thi tra null (man doc giu anh goc). */
+    /**
+     * Anh vao -> anh 2x da tang net. Loi thi tra null (man doc giu anh goc).
+     * Xu ly theo DAI NGANG va ghi thang vao bitmap dich (setPixels tung dai):
+     * khong giu mang pixel khong lo trong RAM — ban cu giu cung luc 2 mang
+     * ~40-60MB cho anh dai, tren gia lap de tran bo nho lam chet luong xu ly.
+     */
     fun enhance(src: Bitmap): Bitmap? {
         val s = session ?: return null
         val e = env ?: return null
         val w = src.width
         val h = src.height
         if (w < 16 || h < 16) return null
+        // Anh dich qua lon (> 90 trieu diem) thi bo qua: nguyen trang dai bat
+        // thuong, cu giu anh goc cho chac an bo nho.
+        if (w.toLong() * h.toLong() * 4L > 90_000_000L) {
+            lastFailure = "Ảnh quá dài, AI bỏ qua trang này"
+            return null
+        }
         return try {
             val pixels = IntArray(w * h)
             src.getPixels(pixels, 0, w, 0, 0, w, h)
-            val outW = w * 2
-            val outH = h * 2
-            val outPixels = IntArray(outW * outH)
+            val out = Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888)
             var y0 = 0
             while (y0 < h) {
                 val stripH = minOf(TILE_H, h - y0)
-                runStrip(s, e, pixels, w, h, y0, stripH, outPixels, outW)
+                runStrip(s, e, pixels, w, h, y0, stripH, out)
                 y0 += stripH
             }
-            sharpen(outPixels, outW, outH, 0.5f)
-            Bitmap.createBitmap(outPixels, outW, outH, Bitmap.Config.ARGB_8888)
-        } catch (e: Exception) {
-            lastFailure = "AI xử lý lỗi: ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
+            sharpenBitmap(out, 0.5f)
+            out
+        } catch (t: Throwable) {
+            lastFailure = "AI xử lý lỗi: ${t.javaClass.simpleName} ${t.message ?: ""}".trim()
             null
         }
     }
 
     /**
-     * Lam net vien (unsharp mask nhe) sau khi phong to: day la lop "net thay
-     * duoc bang mat" o kich thuoc hien thi vua man hinh — anh goc 700px xem o
-     * ~600px thi rieng do phan giai 2x chua du de thay khac biet.
-     * Blur xap xi bang trung binh 4 diem lan can (tren/dudi/trai/phai).
+     * Lam net vien (unsharp mask nhe) sau khi phong to, lam theo dai 256 dong
+     * (chong them 1 dong tren/duoi) de khong ton RAM. Day la lop "net thay
+     * duoc bang mat" o kich thuoc hien thi vua man hinh.
+     * Blur xap xi bang trung binh 4 diem lan can (tren/duoi/trai/phai).
      */
-    private fun sharpen(px: IntArray, w: Int, h: Int, amount: Float) {
-        val src = px.copyOf()
-        for (y in 1 until h - 1) {
-            val row = y * w
-            val up = row - w
-            val down = row + w
-            for (x in 1 until w - 1) {
-                val i = row + x
-                val c = src[i]
-                val r = (c shr 16) and 0xFF
-                val g = (c shr 8) and 0xFF
-                val b = c and 0xFF
-                val br = (((src[up + x] shr 16) and 0xFF) + ((src[down + x] shr 16) and 0xFF) +
-                    ((src[row + x - 1] shr 16) and 0xFF) + ((src[row + x + 1] shr 16) and 0xFF)) / 4
-                val bg = (((src[up + x] shr 8) and 0xFF) + ((src[down + x] shr 8) and 0xFF) +
-                    ((src[row + x - 1] shr 8) and 0xFF) + ((src[row + x + 1] shr 8) and 0xFF)) / 4
-                val bb = ((src[up + x] and 0xFF) + (src[down + x] and 0xFF) +
-                    (src[row + x - 1] and 0xFF) + (src[row + x + 1] and 0xFF)) / 4
-                val nr = (r + amount * (r - br)).toInt().coerceIn(0, 255)
-                val ng = (g + amount * (g - bg)).toInt().coerceIn(0, 255)
-                val nb = (b + amount * (b - bb)).toInt().coerceIn(0, 255)
-                px[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+    private fun sharpenBitmap(bmp: Bitmap, amount: Float) {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 3 || h < 3) return
+        val bandH = 256
+        var yStart = 0
+        while (yStart < h) {
+            val rows = minOf(bandH, h - yStart)
+            val topPad = if (yStart > 0) 1 else 0
+            val botPad = if (yStart + rows < h) 1 else 0
+            val total = topPad + rows + botPad
+            val buf = IntArray(w * total)
+            bmp.getPixels(buf, 0, w, 0, yStart - topPad, w, total)
+            val orig = buf.copyOf()
+            for (ry in 0 until rows) {
+                val gy = yStart + ry
+                if (gy == 0 || gy == h - 1) continue // Dong bien toan cuc: khong du lan can
+                val yy = topPad + ry
+                val row = yy * w
+                val up = row - w
+                val down = row + w
+                for (x in 1 until w - 1) {
+                    val i = row + x
+                    val c = orig[i]
+                    val r = (c shr 16) and 0xFF
+                    val g = (c shr 8) and 0xFF
+                    val b = c and 0xFF
+                    val br = (((orig[up + x] shr 16) and 0xFF) + ((orig[down + x] shr 16) and 0xFF) +
+                        ((orig[row + x - 1] shr 16) and 0xFF) + ((orig[row + x + 1] shr 16) and 0xFF)) / 4
+                    val bg = (((orig[up + x] shr 8) and 0xFF) + ((orig[down + x] shr 8) and 0xFF) +
+                        ((orig[row + x - 1] shr 8) and 0xFF) + ((orig[row + x + 1] shr 8) and 0xFF)) / 4
+                    val bb = ((orig[up + x] and 0xFF) + (orig[down + x] and 0xFF) +
+                        (orig[row + x - 1] and 0xFF) + (orig[row + x + 1] and 0xFF)) / 4
+                    val nr = (r + amount * (r - br)).toInt().coerceIn(0, 255)
+                    val ng = (g + amount * (g - bg)).toInt().coerceIn(0, 255)
+                    val nb = (b + amount * (b - bb)).toInt().coerceIn(0, 255)
+                    buf[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+                }
             }
+            // Ghi lai dung phan dong cua dai (bo 2 dong dem)
+            val writeRows = IntArray(w * rows)
+            System.arraycopy(buf, topPad * w, writeRows, 0, w * rows)
+            bmp.setPixels(writeRows, 0, w, 0, yStart, w, rows)
+            yStart += rows
         }
     }
 
-    /** Xu ly 1 dai ngang: dem phan xa PAD px, chay model, cat vung giua dung 2x. */
+    /** Xu ly 1 dai ngang: dem phan xa PAD px, chay model, ghi thang vao bitmap dich. */
     private fun runStrip(
         s: OrtSession, e: OrtEnvironment,
         pixels: IntArray, w: Int, h: Int,
         y0: Int, stripH: Int,
-        outPixels: IntArray, outW: Int
+        out: Bitmap
     ) {
         val inW = w + PAD * 2
         val inH = stripH + PAD * 2
@@ -158,21 +188,22 @@ object AiUpscaler {
                 val buf = outTensor.floatBuffer
                 val oW = inW * 2 - 72
                 val oPlane = oW * (inH * 2 - 72)
-                val dstY0 = y0 * 2
                 val keepH = stripH * 2
                 val keepW = w * 2
+                val stripOut = IntArray(keepW * keepH)
                 for (y in 0 until keepH) {
                     val oy = TRIM_OUT + y
                     val oRow = oy * oW
-                    val dRow = (dstY0 + y) * outW
+                    val dRow = y * keepW
                     for (x in 0 until keepW) {
                         val ox = TRIM_OUT + x
                         val r = (buf.get(oRow + ox) * 255f).toInt().coerceIn(0, 255)
                         val g = (buf.get(oPlane + oRow + ox) * 255f).toInt().coerceIn(0, 255)
                         val b = (buf.get(2 * oPlane + oRow + ox) * 255f).toInt().coerceIn(0, 255)
-                        outPixels[dRow + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                        stripOut[dRow + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
                     }
                 }
+                out.setPixels(stripOut, 0, keepW, 0, y0 * 2, keepW, keepH)
             }
         }
     }
