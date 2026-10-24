@@ -5,17 +5,20 @@ plugins {
 
 import java.util.Base64
 
-// Icon dong goi dang base64 trong repo (GitHub chi nhan file text);
-// khi build se giai ma thanh tai nguyen that trong thu muc generated.
-// (Model AI da go bo o ban 1.1 — khong con assets/model nua.)
+// Icon + model AI (ESRGAN) dong goi dang base64 trong repo (GitHub chi
+// nhan file text); khi build se giai ma thanh tai nguyen that trong
+// thu muc generated.
 def genResRoot = layout.buildDirectory.dir('generated/toonhwaRes')
 def genAssetsRoot = layout.buildDirectory.dir('generated/toonhwaAssets')
 
 tasks.register('generateToonhwaAssets') {
     inputs.dir('icon-b64')
+    inputs.dir('model-b64')
     outputs.dir(genResRoot)
+    outputs.dir(genAssetsRoot)
     doLast {
         def resOut = genResRoot.get().asFile
+        def assetsOut = genAssetsRoot.get().asFile
         // Icon: ten file phang dang <ten>-<density>.png.b64 -> mipmap-<density>/<ten>.png
         file('icon-b64').listFiles()?.each { f ->
             if (f.name.endsWith('.png.b64')) {
@@ -29,6 +32,16 @@ tasks.register('generateToonhwaAssets') {
                         Base64.getMimeDecoder().decode(f.getText('UTF-8'))
             }
         }
+        // Model ESRGAN: model-b64/esrgan.onnx.b64.p00..pNN -> assets/esrgan.onnx
+        def parts = file('model-b64').listFiles()
+                ?.findAll { it.name.startsWith('esrgan.onnx.b64.p') }
+                ?.sort { it.name } ?: []
+        if (!parts.isEmpty()) {
+            assetsOut.mkdirs()
+            def joined = parts.collect { it.getText('UTF-8') }.join('')
+            new File(assetsOut, 'esrgan.onnx').bytes =
+                    Base64.getMimeDecoder().decode(joined)
+        }
     }
 }
 
@@ -40,11 +53,12 @@ android {
         applicationId 'com.example.toonhwa'
         minSdk 24
         targetSdk 34
-        versionCode 6
-        versionName '1.1.1'
+        versionCode 7
+        versionName '1.2'
         ndk {
             // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app
-            abiFilters 'arm64-v8a', 'x86_64'
+            // Du 4 kien truc: thieu 32-bit la AI chet tren gia lap LDPlayer cu
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
         }
     }
 
@@ -86,5 +100,5 @@ dependencies {
     // Kiem tra chap moi dinh ky o nen (thong bao)
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
     // Chay model AI tang net anh ngay tren may (ONNX Runtime)
-    // (Da go ONNX Runtime o ban 1.1: lam net bang ImageSharpener thuan Android.)
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.31.0'
 }

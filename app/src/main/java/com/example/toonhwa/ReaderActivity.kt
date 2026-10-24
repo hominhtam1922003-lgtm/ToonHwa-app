@@ -53,6 +53,7 @@ class ReaderActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNext).setOnClickListener { moveChapter(1) }
 
         val btnAi = findViewById<Button>(R.id.btnAi)
+        AiEnhancer.ensureSelfTest(this)
         btnAi.setOnClickListener {
             // Dang bao loi: cham vao la hien NGUYEN VAN loi de chup lai chuan doan
             if (AiEnhancer.lastError != null) {
