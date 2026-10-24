@@ -31,13 +31,46 @@ object ImageLoader {
 
     fun cover(iv: ImageView, url: String) {
         if (url.isEmpty()) {
-            iv.setImageResource(android.R.drawable.ic_menu_gallery)
+            iv.setImageResource(R.mipmap.ic_launcher)
             return
         }
         Glide.with(iv).load(glideUrl(url))
-            .placeholder(android.R.drawable.ic_menu_gallery)
-            .error(android.R.drawable.ic_menu_gallery)
+            .placeholder(R.mipmap.ic_launcher)
+            .error(R.mipmap.ic_launcher)
             .centerCrop()
+            .into(iv)
+    }
+
+    /** Tai anh bia; neu nguon mat file (404) thi goi onFail de man hinh tu xu ly. */
+    fun coverOrElse(iv: ImageView, url: String, onFail: () -> Unit) {
+        if (url.isEmpty()) {
+            onFail()
+            return
+        }
+        Glide.with(iv).load(glideUrl(url))
+            .placeholder(R.mipmap.ic_launcher)
+            .error(R.mipmap.ic_launcher)
+            .centerCrop()
+            .listener(object :
+                com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> {
+                override fun onLoadFailed(
+                    e: com.bumptech.glide.load.engine.GlideException?,
+                    model: Any?,
+                    target: com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable>,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    onFail()
+                    return false
+                }
+
+                override fun onResourceReady(
+                    resource: android.graphics.drawable.Drawable,
+                    model: Any,
+                    target: com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable>,
+                    dataSource: com.bumptech.glide.load.DataSource,
+                    isFirstResource: Boolean
+                ): Boolean = false
+            })
             .into(iv)
     }
 

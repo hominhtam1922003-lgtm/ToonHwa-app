@@ -70,7 +70,10 @@ object RemoteConfig {
             for (candidate in candidates.distinct()) {
                 val effective = probe(candidate)
                 if (effective != null) {
-                    NetTruyenSource.activeBase = effective
+                    // Cua gg la cua chuan (dich vu full chap chi song o do):
+                    // ke ca khi gg chuyen huong sang guong khac van ghim gg.
+                    NetTruyenSource.activeBase =
+                        if (candidate == NetTruyenSource.DEFAULT_BASE) candidate else effective
                     prefs.edit().putString(KEY_LAST_GOOD, effective).apply()
                     break
                 }

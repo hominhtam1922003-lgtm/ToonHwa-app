@@ -298,21 +298,26 @@ object NetTruyenSource {
 
     /**
      * FULL CHAP: goi dich vu ChapterList cua chinh web (theo slug).
-     * Loi thi rut xuong danh sach nhung san trong HTML (20 chuong moi nhat).
+     * LUU Y: dich vu nay chi song o cua gg — cua ar tra 302 ve trang chu
+     * (kiem chung 24/10/2026) nen phai thu LAN LUOT cac cua cho den khi
+     * cua nao tra JSON that. URL chuong van dung tren cua dang dung.
+     * Loi het thi rut xuong danh sach nhung san trong HTML (20 chuong moi nhat).
      */
     private fun fetchFullChapters(doc: Document, detailUrl: String): List<ComicChapter> {
         val slug = slugFromDoc(doc, detailUrl)
         if (slug.isNotEmpty()) {
-            try {
-                val body = Jsoup.connect("$BASE/Comic/Services/ComicService.asmx/ChapterList?slug=$slug")
-                    .userAgent(UA)
-                    .header("Referer", detailUrl)
-                    .ignoreContentType(true)
-                    .timeout(30000)
-                    .execute()
-                    .body()
-                val arr = JSONObject(body).optJSONArray("data")
-                if (arr != null && arr.length() > 0) {
+            val doors = listOf(BASE, DEFAULT_BASE, "https://nettruyenar.com").distinct()
+            for (door in doors) {
+                try {
+                    val body = Jsoup.connect("$door/Comic/Services/ComicService.asmx/ChapterList?slug=$slug")
+                        .userAgent(UA)
+                        .header("Referer", "$door/")
+                        .ignoreContentType(true)
+                        .timeout(20000)
+                        .execute()
+                        .body()
+                    val arr = JSONObject(body).optJSONArray("data")
+                    if (arr == null || arr.length() == 0) continue
                     val list = ArrayList<ComicChapter>()
                     for (i in 0 until arr.length()) {
                         val o = arr.getJSONObject(i)
@@ -332,9 +337,9 @@ object NetTruyenSource {
                         )
                     }
                     if (list.isNotEmpty()) return list.sortedBy { it.number }
+                } catch (e: Exception) {
+                    // Cua nay khong co dich vu song: thu cua tiep theo
                 }
-            } catch (e: Exception) {
-                // Roi xuong doc tu HTML
             }
         }
         return chaptersFromHtml(doc, detailUrl)

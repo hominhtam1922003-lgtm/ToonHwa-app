@@ -106,6 +106,24 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
+    /** Bia nguon bi mat file: lay anh trang dau tien cua chuong dau lam bia thay the. */
+    private fun fallbackCoverFromFirstPage(d: ComicDetail) {
+        val first = d.chapters.firstOrNull() ?: return
+        thread {
+            try {
+                val pages = NetTruyenSource.fetchChapter(first.url)
+                val img = pages.images.firstOrNull() ?: return@thread
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        ImageLoader.cover(findViewById(R.id.ivDetailCover), img)
+                    }
+                }
+            } catch (e: Exception) {
+                // Khong lay duoc thi giu hinh cho mac dinh
+            }
+        }
+    }
+
     private fun loadFailed() {
         findViewById<ProgressBar>(R.id.detailProgress).visibility = View.GONE
         Toast.makeText(
@@ -129,7 +147,11 @@ class DetailActivity : AppCompatActivity() {
             if (d.genres.isNotEmpty()) "Thể loại: ${d.genres}" else ""
         findViewById<TextView>(R.id.tvDetailDesc).text = d.description
         if (d.comic.cover.isNotEmpty()) {
-            ImageLoader.cover(findViewById(R.id.ivDetailCover), d.comic.cover)
+            // Vai truyen bi web lam mat file bia (chinh web cung khong co):
+            // loi tai bia thi thay bang anh trang dau cua chuong dau tien.
+            ImageLoader.coverOrElse(findViewById(R.id.ivDetailCover), d.comic.cover) {
+                fallbackCoverFromFirstPage(d)
+            }
         }
         findViewById<TextView>(R.id.tvChapterCount).text =
             "Danh sách chương (${d.chapters.size} chap — đã tải toàn bộ)"

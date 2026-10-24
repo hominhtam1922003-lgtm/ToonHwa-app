@@ -10,14 +10,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 
 /**
  * Hang doi tang net AI o NEN cho man doc:
  * - Man doc luon hien anh GOC ngay (khong bao gio cho AI).
- * - Anh nao duoc yeu cau thi tai ban goc -> chay AiUpscaler -> luu cache dia.
- *   Xong thi bao ve giao dien de the cho anh do (cung ti le, khong nhay hinh).
- * - Mo lai chuong la co ban net san tu cache.
+ * - Anh dang NHIN THAY duoc uu tien xu ly truoc; anh sap cuon toi xep hang sau.
+ * - Xong anh nao thi luu cache dia + bao ve giao dien de thay vao (cung ti le,
+ *   khong nhay hinh). Mo lai chuong la co ban net san tu cache.
+ * - Loi duoc ghi vao lastError de nut AI trong man doc hien trang thai that
+ *   (Dang net hoa... / Loi) thay vi im lang.
  * Tat/bat bang cong tac trong man doc (luu trong SharedPreferences).
  */
 object AiEnhancer {
@@ -26,11 +27,16 @@ object AiEnhancer {
     private const val KEY_ENABLED = "ai_enabled"
     private const val MAX_CACHE_BYTES = 250L * 1024 * 1024
 
-    private val executor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "ai-enhancer").apply { priority = Thread.MIN_PRIORITY }
-    }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pending = ConcurrentHashMap<String, MutableList<() -> Unit>>()
+
+    private val lock = Object()
+    private val priorityQueue = ArrayDeque<String>()
+    private val normalQueue = ArrayDeque<String>()
+    @Volatile private var workerStarted = false
+
+    @Volatile var lastError: String? = null
+        private set
 
     @Volatile private var appContext: Context? = null
 
@@ -48,6 +54,13 @@ object AiEnhancer {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_ENABLED, on).apply()
     }
+
+    fun clearError() {
+        lastError = null
+    }
+
+    /** So anh dang cho/dang xu ly (de giao dien hien trang thai). */
+    fun activeCount(): Int = pending.size
 
     private fun cacheDir(): File? {
         val ctx = appContext ?: return null
@@ -68,34 +81,90 @@ object AiEnhancer {
         return if (f.exists() && f.length() > 0) f else null
     }
 
-    /**
-     * Dua URL vao hang doi tang net. Xong (hoac da co san) thi goi onReady
-     * tren luong chinh. Goi trung URL dang chay chi dang ky them callback.
-     */
-    fun submit(context: Context, url: String, onReady: () -> Unit) {
+    /** Dua vao hang doi thuong (xu ly truoc cac anh sap doc toi). */
+    fun submit(context: Context, url: String, onReady: () -> Unit) =
+        enqueue(context, url, priority = false, onReady = onReady)
+
+    /** Dua len dau hang doi (anh dang nam ngay truoc mat nguoi doc). */
+    fun submitPriority(context: Context, url: String, onReady: () -> Unit) =
+        enqueue(context, url, priority = true, onReady = onReady)
+
+    private fun enqueue(context: Context, url: String, priority: Boolean, onReady: () -> Unit) {
         init(context)
         if (cachedFile(url) != null) {
             mainHandler.post(onReady)
             return
         }
-        val callbacks = pending.computeIfAbsent(url) {
-            executor.execute { process(url) }
-            mutableListOf()
+        ensureWorker()
+        var fresh = false
+        val callbacks = synchronized(lock) {
+            val existing = pending[url]
+            if (existing != null) {
+                existing
+            } else {
+                val list = mutableListOf<() -> Unit>()
+                pending[url] = list
+                fresh = true
+                list
+            }
         }
         synchronized(callbacks) { callbacks.add(onReady) }
+        synchronized(lock) {
+            if (fresh) {
+                (if (priority) priorityQueue else normalQueue).addLast(url)
+            } else if (priority && normalQueue.remove(url)) {
+                priorityQueue.addLast(url)
+            }
+            lock.notifyAll()
+        }
+    }
+
+    private fun ensureWorker() {
+        if (workerStarted) return
+        synchronized(lock) {
+            if (workerStarted) return
+            workerStarted = true
+            Thread({ workerLoop() }, "ai-enhancer").apply {
+                priority = Thread.MIN_PRIORITY
+                isDaemon = true
+            }.start()
+        }
+    }
+
+    private fun workerLoop() {
+        while (true) {
+            val url = synchronized(lock) {
+                when {
+                    priorityQueue.isNotEmpty() -> priorityQueue.removeFirst()
+                    normalQueue.isNotEmpty() -> normalQueue.removeFirst()
+                    else -> {
+                        lock.wait()
+                        null
+                    }
+                }
+            } ?: continue
+            process(url)
+        }
     }
 
     private fun process(url: String) {
         val callbacks = pending[url]
         try {
             val ctx = appContext ?: return
-            if (!AiUpscaler.prepare(ctx)) return
+            if (!AiUpscaler.prepare(ctx)) {
+                lastError = AiUpscaler.lastFailure ?: "Không mở được model AI"
+                return
+            }
             val original = download(url) ?: return
             val enhanced = try {
                 AiUpscaler.enhance(original)
             } finally {
                 if (!original.isRecycled) original.recycle()
-            } ?: return
+            }
+            if (enhanced == null) {
+                lastError = AiUpscaler.lastFailure ?: "AI xử lý lỗi không rõ"
+                return
+            }
             val dir = cacheDir() ?: return
             val out = File(dir, key(url) + ".jpg")
             val tmp = File(dir, key(url) + ".tmp")
@@ -104,7 +173,7 @@ object AiEnhancer {
             if (out.exists()) out.delete()
             tmp.renameTo(out)
         } catch (e: Exception) {
-            // Loi 1 anh thi bo qua: man doc van dang hien anh goc
+            lastError = "AI lỗi: ${e.javaClass.simpleName}"
         } finally {
             pending.remove(url)
             if (callbacks != null) {

@@ -1,6 +1,8 @@
 package com.example.toonhwa
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.Button
 import android.widget.ProgressBar
@@ -28,6 +30,13 @@ class ReaderActivity : AppCompatActivity() {
     private var chapterUrl: String = ""
     private var chapterName: String = ""
     private var pageAdapter: PageAdapter? = null
+    private val aiStatusHandler = Handler(Looper.getMainLooper())
+    private val aiStatusTick = object : Runnable {
+        override fun run() {
+            updateAiButton()
+            aiStatusHandler.postDelayed(this, 1500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,22 +53,43 @@ class ReaderActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNext).setOnClickListener { moveChapter(1) }
 
         val btnAi = findViewById<Button>(R.id.btnAi)
-        btnAi.text = if (AiEnhancer.isEnabled(this)) "AI nét: Bật" else "AI nét: Tắt"
         btnAi.setOnClickListener {
             val on = !AiEnhancer.isEnabled(this)
             AiEnhancer.setEnabled(this, on)
-            btnAi.text = if (on) "AI nét: Bật" else "AI nét: Tắt"
+            if (on) AiEnhancer.clearError()
+            updateAiButton()
             Toast.makeText(
                 this,
-                if (on) "Đã bật tăng nét AI — ảnh nét sẽ tự thay vào khi xử lý xong"
+                if (on) "Đã bật tăng nét AI — nút sẽ hiện 'Đang nét hoá…' tới khi xong"
                 else "Đã tắt tăng nét AI",
                 Toast.LENGTH_SHORT
             ).show()
             // Nap lai trang dang doc theo che do moi
             pageAdapter?.let { wireAi(it); it.notifyDataSetChanged() }
         }
+        updateAiButton()
+        aiStatusHandler.postDelayed(aiStatusTick, 1500)
 
         loadChapter()
+    }
+
+    override fun onDestroy() {
+        aiStatusHandler.removeCallbacks(aiStatusTick)
+        super.onDestroy()
+    }
+
+    /** Nut AI phan anh dung trang thai that: Tat / Bat / Dang xu ly / Loi. */
+    private fun updateAiButton() {
+        val btn = findViewById<Button>(R.id.btnAi) ?: return
+        if (!AiEnhancer.isEnabled(this)) {
+            btn.text = "AI nét: Tắt"
+            return
+        }
+        btn.text = when {
+            AiEnhancer.lastError != null -> "AI: Lỗi"
+            AiEnhancer.activeCount() > 0 -> "AI: Đang nét hoá…"
+            else -> "AI nét: Bật"
+        }
     }
 
     private fun currentIndex(): Int =
@@ -150,7 +180,8 @@ class ReaderActivity : AppCompatActivity() {
         if (AiEnhancer.isEnabled(this)) {
             adapter.enhancedLookup = { url -> AiEnhancer.cachedFile(url) }
             adapter.onPageBound = { pos, url ->
-                AiEnhancer.submit(this, url) { refreshPage(adapter, pos, url) }
+                // Anh dang truoc mat nguoi doc: xu ly truoc moi anh khac
+                AiEnhancer.submitPriority(this, url) { refreshPage(adapter, pos, url) }
             }
         } else {
             adapter.enhancedLookup = null

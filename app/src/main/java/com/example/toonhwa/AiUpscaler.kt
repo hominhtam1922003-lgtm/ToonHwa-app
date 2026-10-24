@@ -31,6 +31,10 @@ object AiUpscaler {
     @Volatile private var session: OrtSession? = null
     @Volatile private var inputName: String = "x"
 
+    /** Loi gan nhat khi chuan bi / xu ly (de giao dien bao dung trang thai). */
+    @Volatile var lastFailure: String? = null
+        private set
+
     /** Copy model tu assets ra bo nho trong (1 lan) + mo session. True = san sang. */
     @Synchronized
     fun prepare(context: Context): Boolean {
@@ -53,8 +57,10 @@ object AiUpscaler {
             env = e
             session = s
             inputName = s.inputNames.firstOrNull() ?: "x"
+            lastFailure = null
             true
         } catch (e: Exception) {
+            lastFailure = "Không mở được model AI: ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
             false
         }
     }
@@ -80,9 +86,43 @@ object AiUpscaler {
                 runStrip(s, e, pixels, w, h, y0, stripH, outPixels, outW)
                 y0 += stripH
             }
+            sharpen(outPixels, outW, outH, 0.5f)
             Bitmap.createBitmap(outPixels, outW, outH, Bitmap.Config.ARGB_8888)
         } catch (e: Exception) {
+            lastFailure = "AI xử lý lỗi: ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
             null
+        }
+    }
+
+    /**
+     * Lam net vien (unsharp mask nhe) sau khi phong to: day la lop "net thay
+     * duoc bang mat" o kich thuoc hien thi vua man hinh — anh goc 700px xem o
+     * ~600px thi rieng do phan giai 2x chua du de thay khac biet.
+     * Blur xap xi bang trung binh 4 diem lan can (tren/dudi/trai/phai).
+     */
+    private fun sharpen(px: IntArray, w: Int, h: Int, amount: Float) {
+        val src = px.copyOf()
+        for (y in 1 until h - 1) {
+            val row = y * w
+            val up = row - w
+            val down = row + w
+            for (x in 1 until w - 1) {
+                val i = row + x
+                val c = src[i]
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                val br = (((src[up + x] shr 16) and 0xFF) + ((src[down + x] shr 16) and 0xFF) +
+                    ((src[row + x - 1] shr 16) and 0xFF) + ((src[row + x + 1] shr 16) and 0xFF)) / 4
+                val bg = (((src[up + x] shr 8) and 0xFF) + ((src[down + x] shr 8) and 0xFF) +
+                    ((src[row + x - 1] shr 8) and 0xFF) + ((src[row + x + 1] shr 8) and 0xFF)) / 4
+                val bb = ((src[up + x] and 0xFF) + (src[down + x] and 0xFF) +
+                    (src[row + x - 1] and 0xFF) + (src[row + x + 1] and 0xFF)) / 4
+                val nr = (r + amount * (r - br)).toInt().coerceIn(0, 255)
+                val ng = (g + amount * (g - bg)).toInt().coerceIn(0, 255)
+                val nb = (b + amount * (b - bb)).toInt().coerceIn(0, 255)
+                px[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+            }
         }
     }
 
