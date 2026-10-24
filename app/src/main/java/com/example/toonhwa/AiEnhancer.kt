@@ -70,49 +70,7 @@ object AiEnhancer {
         }
     }
 
-    @Volatile
-    private var selfTestResult: String? = null
-
-    @Volatile
-    private var selfTestStarted = false
-
-    /**
-     * Tu kiem tra ngay trong may: chay model tren 1 anh gia nho.
-     * Tach bach "model/nap loi" khoi "anh that loi" de chuan doan dung benh.
-     */
-    fun ensureSelfTest(context: Context) {
-        if (selfTestStarted) return
-        selfTestStarted = true
-        appContext = context.applicationContext
-        Thread {
-            selfTestResult = try {
-                if (!AiUpscaler.prepare(context.applicationContext)) {
-                    "THẤT BẠI — " + (AiUpscaler.lastFailure ?: "không mở được model")
-                } else {
-                    val bmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-                    val px = IntArray(96 * 96) { i ->
-                        val x = i % 96
-                        val y = i / 96
-                        (0xFF shl 24) or (x * 2 shl 16) or (y * 2 shl 8) or 128
-                    }
-                    bmp.setPixels(px, 0, 96, 0, 0, 96, 96)
-                    val out = AiUpscaler.enhance(bmp)
-                    bmp.recycle()
-                    if (out != null) {
-                        val r = "ĐẠT — ảnh 96px vào, ra ${out.width}x${out.height}"
-                        out.recycle()
-                        r
-                    } else {
-                        "THẤT BẠI — " + (AiUpscaler.lastFailure ?: "xử lý trả về rỗng")
-                    }
-                }
-            } catch (t: Throwable) {
-                "THẤT BẠI — ${t.javaClass.simpleName} ${t.message ?: ""}".trim()
-            }
-        }.start()
-    }
-
-    /** Ban chan doan day du de nguoi dung chup lai khi AI bao loi. */
+    /** Ban chan doan gon de nguoi dung chup lai khi bao loi. */
     fun diagnosticText(context: Context): String {
         val saved = try {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -121,10 +79,8 @@ object AiEnhancer {
             null
         }
         return buildString {
-            append("Model đã nạp: ").append(if (AiUpscaler.isReady()) "RỒI" else "CHƯA").append('\n')
-            append("Tự kiểm tra: ").append(selfTestResult ?: "đang chạy…").append('\n')
+            append("Chế độ: làm nét ngay trên máy (không còn model AI nặng)\n")
             append("Lỗi gần nhất: ").append(lastError ?: saved ?: "không có").append('\n')
-            append("Chi tiết: ").append(AiUpscaler.lastFailure ?: "không có").append('\n')
             append("Đang chờ xử lý: ").append(activeCount()).append(" ảnh")
         }
     }
@@ -134,7 +90,7 @@ object AiEnhancer {
 
     private fun cacheDir(): File? {
         val ctx = appContext ?: return null
-        val dir = File(ctx.cacheDir, "ai_cache")
+        val dir = File(ctx.cacheDir, "ai_cache2")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
@@ -227,19 +183,14 @@ object AiEnhancer {
     private fun process(url: String) {
         val callbacks = pending[url]
         try {
-            val ctx = appContext ?: return
-            if (!AiUpscaler.prepare(ctx)) {
-                setError(AiUpscaler.lastFailure ?: "Không mở được model AI")
-                return
-            }
             val original = download(url) ?: return
             val enhanced = try {
-                AiUpscaler.enhance(original)
+                ImageSharpener.enhance(original)
             } finally {
                 if (!original.isRecycled) original.recycle()
             }
             if (enhanced == null) {
-                setError(AiUpscaler.lastFailure ?: "AI xử lý lỗi không rõ")
+                setError(ImageSharpener.lastFailure ?: "Làm nét lỗi không rõ")
                 return
             }
             val dir = cacheDir() ?: return
