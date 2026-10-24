@@ -53,12 +53,14 @@ android {
         applicationId 'com.example.toonhwa'
         minSdk 24
         targetSdk 34
-        versionCode 8
-        versionName '1.3'
+        versionCode 9
+        versionName '1.3.1'
         ndk {
-            // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app
-            // Du 4 kien truc: thieu 32-bit la AI chet tren gia lap LDPlayer cu
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
+            // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app.
+            // Ban 1.3 dong 4 ABI thi APK nang 152MB, vuot gioi han upload link
+            // truc tiep; ban nay ve 2 ABI nhu v1.0 (ban do DA cai va chay duoc
+            // tren may chu app nen 2 ABI nay la du bang chung).
+            abiFilters 'arm64-v8a', 'x86_64'
         }
     }
 

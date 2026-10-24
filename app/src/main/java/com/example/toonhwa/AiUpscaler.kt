@@ -24,7 +24,7 @@ import java.nio.FloatBuffer
  * Cong thuc CUNet da kiem chung trong bake-off Python: dau ra =
  * 2*dau vao - 72 moi chieu; vung giu lai nam o offset 2*PAD - 36.
  * prepare() thu XNNPACK truoc (tang toc CPU lon tren Android), khong duoc
- * thi lui ve CPU thuong; bat moi loi ke ca loi native, dong goi du 4 ABI.
+ * thi lui ve CPU thuong; bat moi loi ke ca loi native de bao loi that.
  */
 object AiUpscaler {
 
