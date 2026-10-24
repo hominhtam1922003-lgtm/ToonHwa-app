@@ -47,7 +47,7 @@ object AiUpscaler {
     fun prepare(context: Context): Boolean {
         if (session != null) return true
         var failure: Throwable? = null
-        for (attempt in 0..1) {
+        for (attempt in 0..2) {
             try {
                 val modelFile = File(context.filesDir, "ai/esrgan.onnx")
                 if (!modelFile.exists() || modelFile.length() < 1_000_000) {
@@ -57,11 +57,24 @@ object AiUpscaler {
                     }
                 }
                 val e = OrtEnvironment.getEnvironment()
-                val opts = if (attempt == 0) OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(4)
-                    setInterOpNumThreads(1)
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                } else OrtSession.SessionOptions()
+                val opts = OrtSession.SessionOptions().apply {
+                    when (attempt) {
+                        0 -> {
+                            // XNNPACK: don tang toc CPU lon nhat tren Android
+                            // neu co; may nao khong ho tro se tu rot xuong
+                            // cau hinh thuong o attempt sau.
+                            addXnnpack(emptyMap())
+                            setIntraOpNumThreads(4)
+                            setInterOpNumThreads(1)
+                            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                        }
+                        1 -> {
+                            setIntraOpNumThreads(4)
+                            setInterOpNumThreads(1)
+                            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                        }
+                    }
+                }
                 val s = e.createSession(modelFile.absolutePath, opts)
                 env = e
                 session = s
