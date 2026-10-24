@@ -101,7 +101,7 @@ object NetTruyenSource {
         if (page <= 1) "$BASE$MANHWA_PATH" else "$BASE$MANHWA_PATH?page=$page"
 
     fun newUrl(page: Int): String =
-        if (page <= 1) "$BASE$MANHWA_PATH?sort=15" else "$BASE$MANHWA_PATH?sort=15&page=$page"
+        if (page <= 1) "$BASE$MANHWA_PATH" else "$BASE$MANHWA_PATH?page=$page"
 
     fun hotUrl(): String = "$BASE$MANHWA_PATH?sort=10"
 
@@ -113,7 +113,11 @@ object NetTruyenSource {
     /** Trang chu: manhwa moi cap nhat (sap xep mac dinh cua web). */
     fun fetchLatest(page: Int): List<Comic> = parseList(fetchDoc(latestUrl(page)))
 
-    /** Tab Moi: truyen moi dang (sort=15). */
+    /**
+     * Tab Moi: feed "Ngay cap nhat" (mac dinh cua web) co phan trang sau.
+     * KHONG dung sort=15 — do la "truyen moi them vao kho", chap cu van hien
+     * nhu moi, thua ca trang chu (user phan anh 24/10/2026).
+     */
     fun fetchNewPage(page: Int): List<Comic> = parseList(fetchDoc(newUrl(page)))
 
     /** Tab Hot: xem nhieu nhat moi thoi dai (sort=10), 1 trang. */

@@ -39,30 +39,37 @@ object AiUpscaler {
     @Synchronized
     fun prepare(context: Context): Boolean {
         if (session != null) return true
-        return try {
-            val modelFile = File(context.filesDir, "ai/model.onnx")
-            if (!modelFile.exists() || modelFile.length() < 1_000_000) {
-                modelFile.parentFile?.mkdirs()
-                context.assets.open(ASSET_NAME).use { input ->
-                    modelFile.outputStream().use { input.copyTo(it) }
+        var failure: Throwable? = null
+        // Thu 2 lan: lan 1 cau hinh day du, lan 2 cau hinh mac dinh tho —
+        // vai may gia lap nga o tuy chon toi uu chu khong nga o model.
+        for (attempt in 0..1) {
+            try {
+                val modelFile = File(context.filesDir, "ai/model.onnx")
+                if (!modelFile.exists() || modelFile.length() < 1_000_000) {
+                    modelFile.parentFile?.mkdirs()
+                    context.assets.open(ASSET_NAME).use { input ->
+                        modelFile.outputStream().use { input.copyTo(it) }
+                    }
                 }
+                val e = OrtEnvironment.getEnvironment()
+                val opts = if (attempt == 0) OrtSession.SessionOptions().apply {
+                    setIntraOpNumThreads(4)
+                    setInterOpNumThreads(1)
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                } else OrtSession.SessionOptions()
+                val s = e.createSession(modelFile.absolutePath, opts)
+                env = e
+                session = s
+                inputName = s.inputNames.firstOrNull() ?: "x"
+                lastFailure = null
+                return true
+            } catch (t: Throwable) {
+                failure = t // Ke ca loi native (Error): ghi lai chu khong vuot ra ngoai
             }
-            val e = OrtEnvironment.getEnvironment()
-            val opts = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(4)
-                setInterOpNumThreads(1)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            }
-            val s = e.createSession(modelFile.absolutePath, opts)
-            env = e
-            session = s
-            inputName = s.inputNames.firstOrNull() ?: "x"
-            lastFailure = null
-            true
-        } catch (e: Exception) {
-            lastFailure = "Không mở được model AI: ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
-            false
         }
+        val t = failure
+        lastFailure = "Không mở được model AI: ${t?.javaClass?.simpleName} ${t?.message ?: ""}".trim()
+        return false
     }
 
     fun isReady(): Boolean = session != null

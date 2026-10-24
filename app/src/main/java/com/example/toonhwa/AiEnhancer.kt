@@ -59,6 +59,76 @@ object AiEnhancer {
         lastError = null
     }
 
+    /** Ghi loi vua vao bo nho vua xuong dia (de thoat ra vao lai van xem lai duoc). */
+    private fun setError(msg: String) {
+        lastError = msg
+        try {
+            appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()
+                ?.putString("ai_last_error", msg)?.apply()
+        } catch (t: Throwable) {
+            // Khong luu duoc thi thoi
+        }
+    }
+
+    @Volatile
+    private var selfTestResult: String? = null
+
+    @Volatile
+    private var selfTestStarted = false
+
+    /**
+     * Tu kiem tra ngay trong may: chay model tren 1 anh gia nho.
+     * Tach bach "model/nap loi" khoi "anh that loi" de chuan doan dung benh.
+     */
+    fun ensureSelfTest(context: Context) {
+        if (selfTestStarted) return
+        selfTestStarted = true
+        appContext = context.applicationContext
+        Thread {
+            selfTestResult = try {
+                if (!AiUpscaler.prepare(context.applicationContext)) {
+                    "THẤT BẠI — " + (AiUpscaler.lastFailure ?: "không mở được model")
+                } else {
+                    val bmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+                    val px = IntArray(96 * 96) { i ->
+                        val x = i % 96
+                        val y = i / 96
+                        (0xFF shl 24) or (x * 2 shl 16) or (y * 2 shl 8) or 128
+                    }
+                    bmp.setPixels(px, 0, 96, 0, 0, 96, 96)
+                    val out = AiUpscaler.enhance(bmp)
+                    bmp.recycle()
+                    if (out != null) {
+                        val r = "ĐẠT — ảnh 96px vào, ra ${out.width}x${out.height}"
+                        out.recycle()
+                        r
+                    } else {
+                        "THẤT BẠI — " + (AiUpscaler.lastFailure ?: "xử lý trả về rỗng")
+                    }
+                }
+            } catch (t: Throwable) {
+                "THẤT BẠI — ${t.javaClass.simpleName} ${t.message ?: ""}".trim()
+            }
+        }.start()
+    }
+
+    /** Ban chan doan day du de nguoi dung chup lai khi AI bao loi. */
+    fun diagnosticText(context: Context): String {
+        val saved = try {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("ai_last_error", null)
+        } catch (t: Throwable) {
+            null
+        }
+        return buildString {
+            append("Model đã nạp: ").append(if (AiUpscaler.isReady()) "RỒI" else "CHƯA").append('\n')
+            append("Tự kiểm tra: ").append(selfTestResult ?: "đang chạy…").append('\n')
+            append("Lỗi gần nhất: ").append(lastError ?: saved ?: "không có").append('\n')
+            append("Chi tiết: ").append(AiUpscaler.lastFailure ?: "không có").append('\n')
+            append("Đang chờ xử lý: ").append(activeCount()).append(" ảnh")
+        }
+    }
+
     /** So anh dang cho/dang xu ly (de giao dien hien trang thai). */
     fun activeCount(): Int = pending.size
 
@@ -148,7 +218,7 @@ object AiEnhancer {
             } catch (t: Throwable) {
                 // Luong xu ly KHONG BAO GIO duoc chet (ke ca het bo nho):
                 // chet la hang doi dung im lang mai mai.
-                lastError = "AI lỗi nặng: ${t.javaClass.simpleName}"
+                setError("AI lỗi nặng: ${t.javaClass.simpleName} ${t.message ?: ""}".trim())
                 pending.remove(url)
             }
         }
@@ -159,7 +229,7 @@ object AiEnhancer {
         try {
             val ctx = appContext ?: return
             if (!AiUpscaler.prepare(ctx)) {
-                lastError = AiUpscaler.lastFailure ?: "Không mở được model AI"
+                setError(AiUpscaler.lastFailure ?: "Không mở được model AI")
                 return
             }
             val original = download(url) ?: return
@@ -169,7 +239,7 @@ object AiEnhancer {
                 if (!original.isRecycled) original.recycle()
             }
             if (enhanced == null) {
-                lastError = AiUpscaler.lastFailure ?: "AI xử lý lỗi không rõ"
+                setError(AiUpscaler.lastFailure ?: "AI xử lý lỗi không rõ")
                 return
             }
             val dir = cacheDir() ?: return
@@ -180,8 +250,10 @@ object AiEnhancer {
             if (out.exists()) out.delete()
             tmp.renameTo(out)
         } catch (t: Throwable) {
-            lastError = if (t is OutOfMemoryError) "AI hết bộ nhớ (OOM)"
-            else "AI lỗi: ${t.javaClass.simpleName}"
+            setError(
+                if (t is OutOfMemoryError) "AI hết bộ nhớ (OOM)"
+                else "AI lỗi: ${t.javaClass.simpleName} ${t.message ?: ""}".trim()
+            )
         } finally {
             pending.remove(url)
             if (callbacks != null) {
