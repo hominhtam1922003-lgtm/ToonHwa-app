@@ -1,0 +1,103 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+import java.util.Base64
+
+// Icon + model AI dong goi dang base64 trong repo (GitHub chi nhan file text);
+// khi build se giai ma thanh tai nguyen that trong thu muc generated.
+def genResRoot = layout.buildDirectory.dir('generated/toonhwaRes')
+def genAssetsRoot = layout.buildDirectory.dir('generated/toonhwaAssets')
+
+tasks.register('generateToonhwaAssets') {
+    inputs.dir('icon-b64')
+    inputs.dir('model-b64')
+    outputs.dir(genResRoot)
+    outputs.dir(genAssetsRoot)
+    doLast {
+        def resOut = genResRoot.get().asFile
+        def assetsOut = genAssetsRoot.get().asFile
+        // Icon: ten file phang dang <ten>-<density>.png.b64 -> mipmap-<density>/<ten>.png
+        file('icon-b64').listFiles()?.each { f ->
+            if (f.name.endsWith('.png.b64')) {
+                def core = f.name - '.png.b64'           // vd ic_launcher-xxxhdpi
+                def idx = core.lastIndexOf('-')
+                def resName = core.substring(0, idx)     // ic_launcher / ic_launcher_round / ic_launcher_foreground
+                def density = core.substring(idx + 1)    // mdpi..xxxhdpi
+                def outDir = new File(resOut, "mipmap-${density}")
+                outDir.mkdirs()
+                new File(outDir, "${resName}.png").bytes =
+                        Base64.getMimeDecoder().decode(f.getText('UTF-8'))
+            }
+        }
+        // Model AI: model-b64/model.onnx.b64.p01..pNN (tach nho de day qua
+        // GitHub) -> ghep lai -> assets/ai_model.onnx
+        def parts = file('model-b64').listFiles()
+                ?.findAll { it.name.startsWith('model.onnx.b64.p') }
+                ?.sort { it.name } ?: []
+        if (!parts.isEmpty()) {
+            assetsOut.mkdirs()
+            def joined = parts.collect { it.getText('UTF-8') }.join('')
+            new File(assetsOut, 'ai_model.onnx').bytes =
+                    Base64.getMimeDecoder().decode(joined)
+        }
+    }
+}
+
+android {
+    namespace 'com.example.toonhwa'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.example.toonhwa'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+        ndk {
+            // arm64 cho dien thoai that, x86_64 cho gia lap LDPlayer cua chu app
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    sourceSets {
+        main {
+            res.srcDirs += genResRoot
+            assets.srcDirs += genAssetsRoot
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+tasks.named('preBuild') { dependsOn('generateToonhwaAssets') }
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    // Tai + parse HTML nguon truyen
+    implementation 'org.jsoup:jsoup:1.18.1'
+    // Tai anh bia + anh trang truyen
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    // Kiem tra chap moi dinh ky o nen (thong bao)
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
+    // Chay model AI tang net anh ngay tren may (ONNX Runtime)
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.31.0'
+}
