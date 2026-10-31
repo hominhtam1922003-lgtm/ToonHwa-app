@@ -1,1 +1,1 @@
-{"base":"https://nettruyen.gg","mirrors":["https://nettruyenar.com"],"configV2":{"schema":2,"stage":"3.2-luot1-reader-keep-screen-on"},"features":{"readerKeepScreenOnV3":true}}
+{"base":"https://nettruyen.gg","mirrors":["https://nettruyenar.com"],"configV2":{"schema":2,"stage":"3.2-bulk-all-on"},"features":{"readerKeepScreenOnV3":true,"readerVolumeKeysV3":true,"smartEpisodeList":true},"homeUx":{"continueShelf":true,"freshShelf":false,"globalSearch":false,"newArrivals":true,"recommendShelf":false,"unifiedHome":true}}
